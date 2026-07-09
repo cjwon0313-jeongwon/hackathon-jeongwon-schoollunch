@@ -47,7 +47,7 @@ except Exception as e:
 MAX_PERSON = 100
 ALL_TIMES = ["12:50", "12:55", "13:00", "13:05", "13:10", "13:15", "13:20", "13:25"]
 
-# ✨ [수정] 날짜 정보를 문자열로 포맷팅하여 함께 반환하는 캐싱 함수
+# ✨ [수정] '오늘/내일' 텍스트를 빼고 깔끔하게 날짜만 반환
 @st.cache_data(ttl=3600)
 def get_lunch_menu():
     kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
@@ -55,13 +55,11 @@ def get_lunch_menu():
     # 오후 2시(14시) 이후에는 내일 급식을 조회하고, 그 전에는 오늘 급식을 조회
     if kst_now.hour >= 14:
         target_date = kst_now + timedelta(days=1)
-        date_type = "내일"
     else:
         target_date = kst_now
-        date_type = "오늘"
         
     target_date_str = target_date.strftime("%Y%m%d")
-    date_display = target_date.strftime("%m월 %d일") # 예: "07월 10일" 형태로 출력
+    date_display = target_date.strftime("%m월 %d일") # 예: "07월 10일"
     
     url = "https://open.neis.go.kr/hub/mealServiceDietInfo"
     params = {
@@ -81,11 +79,11 @@ def get_lunch_menu():
             
             menu_str = menu_str.replace("<br/>", ", ")
             menu_str = re.sub(r'\([0-9\.]+\)', '', menu_str)
-            return menu_str.replace("*", "").strip(), date_type, date_display
+            return menu_str.replace("*", "").strip(), date_display
         else:
-            return "급식 정보가 없거나 주말/휴일입니다.", date_type, date_display
+            return "급식 정보가 없거나 주말/휴일입니다.", date_display
     except Exception as e:
-        return "급식 정보를 불러오지 못했습니다.", date_type, date_display
+        return "급식 정보를 불러오지 못했습니다.", date_display
 
 def get_grade(student_id):
     if len(student_id) != 5 or not student_id.isdigit():
@@ -162,9 +160,9 @@ elif st.session_state.page == 'reserve':
     st.markdown("---")
     st.title("📅 예약 시간 선택 및 현황")
 
-    # ✨ [수정] 안내창 타이틀에 날짜 정보(date_display)를 직관적으로 추가
-    lunch_menu, date_type, date_display = get_lunch_menu()
-    st.info(f"🍱 **{date_type} ({date_display})의 점심 메뉴:**\n\n{lunch_menu}")
+    # ✨ [수정] 안내창 타이틀에 깔끔하게 날짜만 출력
+    lunch_menu, date_display = get_lunch_menu()
+    st.info(f"🍱 **{date_display} 점심 메뉴:**\n\n{lunch_menu}")
 
     all_data = ref.get() if ref.get() else {}
     server_reservations = {t: [] for t in ALL_TIMES}
@@ -192,6 +190,12 @@ elif st.session_state.page == 'reserve':
     if not available_times:
         st.error("선택 가능한 예약 시간이 없습니다.")
     else:
+        # ✨ [추가] 내가 예약한 상태인지 확인하고, 예약했다면 깔끔한 알림창 띄우기
+        is_reserved = student in all_data
+        if is_reserved:
+            my_time = all_data[student].get('시간')
+            st.success(f"✅ **{name}**님은 현재 **{my_time}** 시간대에 예약되어 있습니다.")
+
         selected_time = st.selectbox("원하는 예약 시간을 선택하세요.", available_times)
         
         btn_col1, btn_col2 = st.columns(2)
@@ -199,12 +203,11 @@ elif st.session_state.page == 'reserve':
             if st.button("🚀 예약하기", use_container_width=True):
                 if not can_reserve(grade):
                     st.error("아직 해당 학년의 예약 시간이 아닙니다.")
-                elif student in all_data:
-                    st.error("이미 예약 내역이 존재합니다.")
+                elif is_reserved:
+                    st.error("이미 예약 내역이 존재합니다. 변경을 원하시면 취소 후 다시 예약해주세요.")
                 elif len(server_reservations[selected_time]) >= MAX_PERSON:
                     st.error("선택하신 시간대는 이미 마감되었습니다.")
                 else:
-                    # ✨ [오타 수정] "I름"으로 들어가던 오타를 "이름"으로 완벽히 수정함
                     ref.child(student).set({
                         "이름": name, 
                         "시간": selected_time,
@@ -215,32 +218,6 @@ elif st.session_state.page == 'reserve':
                     
         with btn_col2:
             if st.button("❌ 예약 취소", use_container_width=True):
-                if student in all_data:
+                if is_reserved:
                     ref.child(student).delete()
-                    st.session_state.toast_msg = "🛑 급식 예약이 정상적으로 취소되었습니다."
-                    st.rerun()
-                else:
-                    st.error("예약된 내역이 없습니다.")
-
-    st.markdown("### 📊 실시간 예약 현황판")
-    st.caption("※ 5초마다 자동으로 새로고침되어 다른 사람의 예약 현황이 실시간 반영됩니다.")
-
-    for t in ALL_TIMES:
-        hour, minute = map(int, t.split(':'))
-        time_mins = hour * 60 + minute
-        if grade == 1 and time_mins < 13 * 60 + 10: continue
-        if grade == 2 and time_mins < 13 * 60: continue
-        if grade == 3 and time_mins < 12 * 60 + 50: continue
-
-        people_list = server_reservations[t]
-        people_count = len(people_list)
-        status = congestion(people_count)
-        
-        label = f"⏰ {t}  |  인원: {people_count:3d}/{MAX_PERSON}명  |  상태: {status}"
-        with st.expander(label):
-            if not people_list:
-                st.write("└ 📪 예약자가 없습니다.")
-            else:
-                for idx, person in enumerate(people_list, 1):
-                    masked = mask_name(person['이름'])
-                    st.write(f"└ **{idx}.** {person['학번']}   {masked}")
+                    st.session_state.toast_msg = "🛑
