@@ -2,9 +2,9 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, db
 from datetime import datetime
-from zoneinfo import ZoneInfo  # ✨ 대한민국 시간(KST) 계산용 내장 라이브러리
+from zoneinfo import ZoneInfo  
 import json 
-from streamlit_autorefresh import st_autorefresh  # ✨ 실시간 화면 동기화 도구
+from streamlit_autorefresh import st_autorefresh  
 
 # 1. 페이지 기본 설정 및 디자인
 st.set_page_config(page_title="급식 예약 시스템", page_icon="🍴", layout="centered")
@@ -29,21 +29,17 @@ except Exception as e:
     st.error(f"데이터베이스 연결 실패: {e}")
     st.stop()
 
-# ✨ [추가 기능 3] 밤 12시(자정) 자동 일괄 취소 시스템
+# 밤 12시(자정) 자동 일괄 취소 시스템
 try:
-    # 한국 시간(KST) 기준으로 오늘 날짜 구하기 (서버 시차 문제 완벽 해결)
     kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
     today_str = kst_now.strftime("%Y-%m-%d")
-    
-    # 데이터베이스에 기록된 마지막 리셋 날짜 확인
     last_reset = root_ref.child('설정/마지막리셋날짜').get()
     
-    # 날짜가 바뀌었다면 자정이 지난 것이므로 예약 데이터 통째로 삭제
     if last_reset != today_str:
-        ref.delete()  # 기존 예약 전체 삭제
-        root_ref.child('설정/마지막리셋날짜').set(today_str)  # 리셋 날짜를 오늘로 갱신
+        ref.delete()  
+        root_ref.child('설정/마지막리셋날짜').set(today_str)  
 except Exception as e:
-    pass # 리셋 과정에서 오류가 나더라도 로그인/예약 기능은 정상 작동하도록 예외 처리
+    pass 
 
 # 3. 상수 정의 및 핵심 함수
 MAX_PERSON = 100
@@ -55,7 +51,7 @@ def get_grade(student_id):
     return int(student_id[0])
 
 def can_reserve(grade):
-    return True # 상시 예약 가능 상태 유지
+    return True 
 
 def congestion(count):
     if count <= 30: return "🟢 여유"
@@ -99,13 +95,11 @@ if st.session_state.page == 'login':
 
 # --- [두 번째 화면: 예약 및 실시간 현황판] ---
 elif st.session_state.page == 'reserve':
-    # ✨ [추가 기능 2] 5초마다 화면을 백그라운드에서 새로고침하여 타인의 예약 현황을 실시간 동기화
     st_autorefresh(interval=5000, key="lunch_data_refresh")
 
-    # ✨ [추가 기능 1] 예약/취소 성공 시 화면에 예쁜 팝업 알림 띄우기
     if st.session_state.toast_msg:
         st.toast(st.session_state.toast_msg, icon="🔔")
-        st.session_state.toast_msg = None # 알림 표시 후 초기화
+        st.session_state.toast_msg = None 
 
     student = st.session_state.student_entry
     name = st.session_state.name_entry
@@ -128,10 +122,20 @@ elif st.session_state.page == 'reserve':
 
     all_data = ref.get() if ref.get() else {}
     server_reservations = {t: [] for t in ALL_TIMES}
+    
     for s_id, info in all_data.items():
         t = info.get('시간')
         if t in server_reservations:
-            server_reservations[t].append({"학번": s_id, "이름": info.get('이름', '')})
+            # ✨ [수정] 데이터베이스에서 타임스탬프 값을 함께 읽어옵니다. (기존 데이터 고려 기본값 0 설정)
+            server_reservations[t].append({
+                "학번": s_id, 
+                "이름": info.get('이름', ''),
+                "timestamp": info.get('timestamp', 0)
+            })
+
+    # ✨ [핵심 추가] 각 시간대별 예약자 배열을 학번 순이 아닌 타임스탬프(시간) 기준으로 오름차순 정렬합니다.
+    for t in ALL_TIMES:
+        server_reservations[t].sort(key=lambda x: x['timestamp'])
 
     available_times = []
     for t in ALL_TIMES:
@@ -156,8 +160,12 @@ elif st.session_state.page == 'reserve':
                 elif len(server_reservations[selected_time]) >= MAX_PERSON:
                     st.error("선택하신 시간대는 이미 마감되었습니다.")
                 else:
-                    ref.child(student).set({"이름": name, "시간": selected_time})
-                    # 예약 완료 알림 메시지를 세션에 저장 후 리런
+                    # ✨ [수정] 데이터를 저장할 때 현재 순간의 타임스탬프 숫자를 함께 기록합니다.
+                    ref.child(student).set({
+                        "이름": name, 
+                        "시간": selected_time,
+                        "timestamp": datetime.now(ZoneInfo("Asia/Seoul")).timestamp()
+                    })
                     st.session_state.toast_msg = f"🎉 {selected_time} 급식 예약이 완료되었습니다!"
                     st.rerun()
                     
@@ -165,7 +173,6 @@ elif st.session_state.page == 'reserve':
             if st.button("❌ 예약 취소", use_container_width=True):
                 if student in all_data:
                     ref.child(student).delete()
-                    # 취소 완료 알림 메시지를 세션에 저장 후 리런
                     st.session_state.toast_msg = "🛑 급식 예약이 정상적으로 취소되었습니다."
                     st.rerun()
                 else:
