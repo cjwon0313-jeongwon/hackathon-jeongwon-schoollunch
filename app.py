@@ -2,23 +2,31 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, db
 from datetime import datetime
+import json # ✨ 금고를 열기 위해 새롭게 추가된 도구
 
 # 1. 페이지 기본 설정 및 디자인
 st.set_page_config(page_title="급식 예약 시스템", page_icon="🍴", layout="centered")
 
-# 2. Firebase 최초 1회 초기화
+# 2. Firebase 최초 1회 초기화 (Secrets 금고 모드)
 if not firebase_admin._apps:
     try:
-        cred = credentials.Certificate("firebase_hackathon_jeongwon.json")
+        # 깃허브 파일 대신 Streamlit 금고(secrets)에서 열쇠를 꺼내옵니다.
+        key_dict = json.loads(st.secrets["firebase_key"])
+        cred = credentials.Certificate(key_dict)
         firebase_admin.initialize_app(cred, {
-            # ⚠️ 아래 주소를 1단계에서 복사한 본인의 Firebase Realtime Database 주소로 변경하세요!
-            'databaseURL': 'https://hackathon-jeongwon-default-rtdb.asia-southeast1.firebasedatabase.app/' 
+            # ⚠️ 본인의 Firebase Realtime Database 주소가 맞는지 확인하세요!
+            'databaseURL': 'https://hackathon-jeongwon-default-rtdb.firebaseio.com/' 
         })
     except Exception as e:
-        st.error(f"Firebase 초기화 실패: {e}\n'firebase_key.json' 파일이 app.py와 같은 폴더에 있는지 확인하세요.")
+        st.error(f"Firebase 초기화 실패: {e}")
+        st.stop()
 
 # Firebase 데이터베이스 참조
-ref = db.reference('급식예약')
+try:
+    ref = db.reference('급식예약')
+except Exception as e:
+    st.error(f"데이터베이스 연결 실패: {e}")
+    st.stop()
 
 # 3. 상수 정의 및 핵심 함수
 MAX_PERSON = 100
@@ -59,8 +67,8 @@ if st.session_state.page == 'login':
     st.title("🍴 급식 예약 시스템")
     st.subheader("학번과 이름을 입력하여 입장해 주세요.")
     
-    student_input = st.text_input("학번 (5자리 예: 10623)", value=st.session_state.student_entry, max_chars=5)
-    name_input = st.text_input("이름 (예: 최정원)", value=st.session_state.name_entry)
+    student_input = st.text_input("학번 (5자리 예: 10617)", value=st.session_state.student_entry, max_chars=5)
+    name_input = st.text_input("이름", value=st.session_state.name_entry)
     
     if st.button("입장하기", use_container_width=True):
         grade = get_grade(student_input)
