@@ -2,7 +2,7 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, db
 from datetime import datetime
-import json # ✨ 금고를 열기 위해 새롭게 추가된 도구
+import json 
 
 # 1. 페이지 기본 설정 및 디자인
 st.set_page_config(page_title="급식 예약 시스템", page_icon="🍴", layout="centered")
@@ -14,7 +14,6 @@ if not firebase_admin._apps:
         key_dict = json.loads(st.secrets["firebase_key"])
         cred = credentials.Certificate(key_dict)
         firebase_admin.initialize_app(cred, {
-            # ⚠️ 본인의 Firebase Realtime Database 주소가 맞는지 확인하세요!
             'databaseURL': 'https://hackathon-jeongwon-default-rtdb.asia-southeast1.firebasedatabase.app/' 
         })
     except Exception as e:
@@ -38,10 +37,8 @@ def get_grade(student_id):
     return int(student_id[0])
 
 def can_reserve(grade):
-    now = datetime.now()
-    current = now.hour * 60 + now.minute
-    start = {1: 13 * 60 + 10, 2: 13 * 60, 3: 12 * 60 + 50}
-    return current >= start.get(grade, 14*60)
+    # ⚠️ 리얼타임 시간 제한 비활성화 (언제든 예약 가능하도록 무조건 True 반환)
+    return True
 
 def congestion(count):
     if count <= 30: return "🟢 여유"
