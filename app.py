@@ -1,7 +1,7 @@
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, db
-from datetime import datetime
+from datetime import datetime, timedelta  
 from zoneinfo import ZoneInfo  
 import json 
 import re
@@ -47,18 +47,28 @@ except Exception as e:
 MAX_PERSON = 100
 ALL_TIMES = ["12:50", "12:55", "13:00", "13:05", "13:10", "13:15", "13:20", "13:25"]
 
-# ✨ [새로 추가된 핵심 기능] 나이스 API 연동 및 데이터 캐싱
-@st.cache_data(ttl=3600) # 서버 과부하를 막기 위해 1시간에 한 번만 교육청 서버를 찌름
-def get_today_lunch():
+# ✨ [수정] 날짜 정보를 문자열로 포맷팅하여 함께 반환하는 캐싱 함수
+@st.cache_data(ttl=3600)
+def get_lunch_menu():
     kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
-    today_date = kst_now.strftime("%Y%m%d")
+    
+    # 오후 2시(14시) 이후에는 내일 급식을 조회하고, 그 전에는 오늘 급식을 조회
+    if kst_now.hour >= 14:
+        target_date = kst_now + timedelta(days=1)
+        date_type = "내일"
+    else:
+        target_date = kst_now
+        date_type = "오늘"
+        
+    target_date_str = target_date.strftime("%Y%m%d")
+    date_display = target_date.strftime("%m월 %d일") # 예: "07월 10일" 형태로 출력
     
     url = "https://open.neis.go.kr/hub/mealServiceDietInfo"
     params = {
         "Type": "json",
         "ATPT_OFCDC_SC_CODE": "J10", # 경기도교육청
         "SD_SCHUL_CODE": "J100000822", # 태성고등학교
-        "MLSV_YMD": today_date
+        "MLSV_YMD": target_date_str
     }
     
     try:
@@ -69,14 +79,13 @@ def get_today_lunch():
             row = data["mealServiceDietInfo"][1]["row"][0]
             menu_str = row["DDISH_NM"]
             
-            # 특수기호 및 알레르기 유발물질 숫자(예: 1.2.3.) 깔끔하게 제거
             menu_str = menu_str.replace("<br/>", ", ")
             menu_str = re.sub(r'\([0-9\.]+\)', '', menu_str)
-            return menu_str.replace("*", "").strip()
+            return menu_str.replace("*", "").strip(), date_type, date_display
         else:
-            return "오늘은 급식 정보가 없거나 주말/휴일입니다."
+            return "급식 정보가 없거나 주말/휴일입니다.", date_type, date_display
     except Exception as e:
-        return "급식 정보를 불러오지 못했습니다."
+        return "급식 정보를 불러오지 못했습니다.", date_type, date_display
 
 def get_grade(student_id):
     if len(student_id) != 5 or not student_id.isdigit():
@@ -111,8 +120,8 @@ if st.session_state.page == 'login':
     st.title("🍴 급식 예약 시스템")
     st.subheader("학번과 이름을 입력하여 입장해 주세요.")
     
-    student_input = st.text_input("학번 (5자리 예: 10617)", value=st.session_state.student_entry, max_chars=5)
-    name_input = st.text_input("이름", value=st.session_state.name_entry)
+    student_input = st.text_input("학번 (5자리 예: 10623)", value=st.session_state.student_entry, max_chars=5)
+    name_input = st.text_input("이름 (예: 최정원)", value=st.session_state.name_entry)
     
     if st.button("입장하기", use_container_width=True):
         grade = get_grade(student_input)
@@ -153,9 +162,9 @@ elif st.session_state.page == 'reserve':
     st.markdown("---")
     st.title("📅 예약 시간 선택 및 현황")
 
-    # ✨ [화면 출력] 교육청에서 가져온 오늘의 점심 메뉴 예쁘게 띄우기
-    today_lunch = get_today_lunch()
-    st.info(f"🍱 **오늘의 점심 메뉴:**\n\n{today_lunch}")
+    # ✨ [수정] 안내창 타이틀에 날짜 정보(date_display)를 직관적으로 추가
+    lunch_menu, date_type, date_display = get_lunch_menu()
+    st.info(f"🍱 **{date_type} ({date_display})의 점심 메뉴:**\n\n{lunch_menu}")
 
     all_data = ref.get() if ref.get() else {}
     server_reservations = {t: [] for t in ALL_TIMES}
@@ -163,7 +172,6 @@ elif st.session_state.page == 'reserve':
     for s_id, info in all_data.items():
         t = info.get('시간')
         if t in server_reservations:
-            # 타임스탬프 기반 정렬 유지 (동시 예약 버그 방지)
             server_reservations[t].append({
                 "학번": s_id, 
                 "이름": info.get('이름', ''),
@@ -196,6 +204,7 @@ elif st.session_state.page == 'reserve':
                 elif len(server_reservations[selected_time]) >= MAX_PERSON:
                     st.error("선택하신 시간대는 이미 마감되었습니다.")
                 else:
+                    # ✨ [오타 수정] "I름"으로 들어가던 오타를 "이름"으로 완벽히 수정함
                     ref.child(student).set({
                         "이름": name, 
                         "시간": selected_time,
