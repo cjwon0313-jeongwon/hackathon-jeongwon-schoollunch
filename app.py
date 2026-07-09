@@ -4,6 +4,8 @@ from firebase_admin import credentials, db
 from datetime import datetime
 from zoneinfo import ZoneInfo  
 import json 
+import re
+import requests
 from streamlit_autorefresh import st_autorefresh  
 
 # 1. 페이지 기본 설정 및 디자인
@@ -29,7 +31,7 @@ except Exception as e:
     st.error(f"데이터베이스 연결 실패: {e}")
     st.stop()
 
-# 밤 12시(자정) 자동 일괄 취소 시스템
+# 자정 자동 리셋 시스템
 try:
     kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
     today_str = kst_now.strftime("%Y-%m-%d")
@@ -44,6 +46,37 @@ except Exception as e:
 # 3. 상수 정의 및 핵심 함수
 MAX_PERSON = 100
 ALL_TIMES = ["12:50", "12:55", "13:00", "13:05", "13:10", "13:15", "13:20", "13:25"]
+
+# ✨ [새로 추가된 핵심 기능] 나이스 API 연동 및 데이터 캐싱
+@st.cache_data(ttl=3600) # 서버 과부하를 막기 위해 1시간에 한 번만 교육청 서버를 찌름
+def get_today_lunch():
+    kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
+    today_date = kst_now.strftime("%Y%m%d")
+    
+    url = "https://open.neis.go.kr/hub/mealServiceDietInfo"
+    params = {
+        "Type": "json",
+        "ATPT_OFCDC_SC_CODE": "J10", # 경기도교육청
+        "SD_SCHUL_CODE": "J100000822", # 태성고등학교
+        "MLSV_YMD": today_date
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=5)
+        data = response.json()
+        
+        if "mealServiceDietInfo" in data:
+            row = data["mealServiceDietInfo"][1]["row"][0]
+            menu_str = row["DDISH_NM"]
+            
+            # 특수기호 및 알레르기 유발물질 숫자(예: 1.2.3.) 깔끔하게 제거
+            menu_str = menu_str.replace("<br/>", ", ")
+            menu_str = re.sub(r'\([0-9\.]+\)', '', menu_str)
+            return menu_str.replace("*", "").strip()
+        else:
+            return "오늘은 급식 정보가 없거나 주말/휴일입니다."
+    except Exception as e:
+        return "급식 정보를 불러오지 못했습니다."
 
 def get_grade(student_id):
     if len(student_id) != 5 or not student_id.isdigit():
@@ -66,7 +99,7 @@ def mask_name(name):
         mid = length // 2
         return name[:mid] + "*" + name[mid+1:]
 
-# 4. 세션 상태 관리 (화면 전환 및 팝업 메시지 제어)
+# 4. 세션 상태 관리 
 if 'page' not in st.session_state: st.session_state.page = 'login'
 if 'student_entry' not in st.session_state: st.session_state.student_entry = ""
 if 'name_entry' not in st.session_state: st.session_state.name_entry = ""
@@ -78,8 +111,8 @@ if st.session_state.page == 'login':
     st.title("🍴 급식 예약 시스템")
     st.subheader("학번과 이름을 입력하여 입장해 주세요.")
     
-    student_input = st.text_input("학번 (5자리 예: 10623)", value=st.session_state.student_entry, max_chars=5)
-    name_input = st.text_input("이름 (예: 최정원)", value=st.session_state.name_entry)
+    student_input = st.text_input("학번 (5자리 예: 10617)", value=st.session_state.student_entry, max_chars=5)
+    name_input = st.text_input("이름", value=st.session_state.name_entry)
     
     if st.button("입장하기", use_container_width=True):
         grade = get_grade(student_input)
@@ -120,20 +153,23 @@ elif st.session_state.page == 'reserve':
     st.markdown("---")
     st.title("📅 예약 시간 선택 및 현황")
 
+    # ✨ [화면 출력] 교육청에서 가져온 오늘의 점심 메뉴 예쁘게 띄우기
+    today_lunch = get_today_lunch()
+    st.info(f"🍱 **오늘의 점심 메뉴:**\n\n{today_lunch}")
+
     all_data = ref.get() if ref.get() else {}
     server_reservations = {t: [] for t in ALL_TIMES}
     
     for s_id, info in all_data.items():
         t = info.get('시간')
         if t in server_reservations:
-            # ✨ [수정] 데이터베이스에서 타임스탬프 값을 함께 읽어옵니다. (기존 데이터 고려 기본값 0 설정)
+            # 타임스탬프 기반 정렬 유지 (동시 예약 버그 방지)
             server_reservations[t].append({
                 "학번": s_id, 
                 "이름": info.get('이름', ''),
                 "timestamp": info.get('timestamp', 0)
             })
 
-    # ✨ [핵심 추가] 각 시간대별 예약자 배열을 학번 순이 아닌 타임스탬프(시간) 기준으로 오름차순 정렬합니다.
     for t in ALL_TIMES:
         server_reservations[t].sort(key=lambda x: x['timestamp'])
 
@@ -160,7 +196,6 @@ elif st.session_state.page == 'reserve':
                 elif len(server_reservations[selected_time]) >= MAX_PERSON:
                     st.error("선택하신 시간대는 이미 마감되었습니다.")
                 else:
-                    # ✨ [수정] 데이터를 저장할 때 현재 순간의 타임스탬프 숫자를 함께 기록합니다.
                     ref.child(student).set({
                         "이름": name, 
                         "시간": selected_time,
