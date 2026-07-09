@@ -220,4 +220,4 @@ elif st.session_state.page == 'reserve':
             if st.button("❌ 예약 취소", use_container_width=True):
                 if is_reserved:
                     ref.child(student).delete()
-                    st.session_state.toast_msg = "🛑
+                    st.session_state.toast_msg = "🛑급식 예약이 정상적으로 취소되었습니다."
