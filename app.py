@@ -67,8 +67,8 @@ if st.session_state.page == 'login':
     st.title("🍴 급식 예약 시스템")
     st.subheader("학번과 이름을 입력하여 입장해 주세요.")
     
-    student_input = st.text_input("학번 (5자리 예: 10617)", value=st.session_state.student_entry, max_chars=5)
-    name_input = st.text_input("이름", value=st.session_state.name_entry)
+    student_input = st.text_input("학번 (5자리 예: 10623)", value=st.session_state.student_entry, max_chars=5)
+    name_input = st.text_input("이름 (예: 최정원)", value=st.session_state.name_entry)
     
     if st.button("입장하기", use_container_width=True):
         grade = get_grade(student_input)
