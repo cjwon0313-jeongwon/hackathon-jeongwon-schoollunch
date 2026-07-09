@@ -117,7 +117,7 @@ if 'toast_msg' not in st.session_state: st.session_state.toast_msg = None
 # 5. UI 및 기능 구현
 # --- [첫 번째 화면: 로그인] ---
 if st.session_state.page == 'login':
-    st.title("🍴 급식 예약 시스템")
+    st.title("🍴 태성고 급식 예약 시스템")
     st.subheader("학번과 이름을 입력하여 입장해 주세요.")
     
     student_input = st.text_input("학번 (5자리 예: 10623)", value=st.session_state.student_entry, max_chars=5)
