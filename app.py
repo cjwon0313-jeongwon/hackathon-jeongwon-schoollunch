@@ -15,7 +15,7 @@ if not firebase_admin._apps:
         cred = credentials.Certificate(key_dict)
         firebase_admin.initialize_app(cred, {
             # ⚠️ 본인의 Firebase Realtime Database 주소가 맞는지 확인하세요!
-            'databaseURL': 'https://hackathon-jeongwon-default-rtdb.firebaseio.com/' 
+            'databaseURL': 'https://hackathon-jeongwon-default-rtdb.asia-southeast1.firebasedatabase.app/' 
         })
     except Exception as e:
         st.error(f"Firebase 초기화 실패: {e}")
