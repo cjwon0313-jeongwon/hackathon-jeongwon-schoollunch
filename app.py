@@ -2,7 +2,9 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, db
 from datetime import datetime
+from zoneinfo import ZoneInfo  # ✨ 대한민국 시간(KST) 계산용 내장 라이브러리
 import json 
+from streamlit_autorefresh import st_autorefresh  # ✨ 실시간 화면 동기화 도구
 
 # 1. 페이지 기본 설정 및 디자인
 st.set_page_config(page_title="급식 예약 시스템", page_icon="🍴", layout="centered")
@@ -10,7 +12,6 @@ st.set_page_config(page_title="급식 예약 시스템", page_icon="🍴", layou
 # 2. Firebase 최초 1회 초기화 (Secrets 금고 모드)
 if not firebase_admin._apps:
     try:
-        # 깃허브 파일 대신 Streamlit 금고(secrets)에서 열쇠를 꺼내옵니다.
         key_dict = json.loads(st.secrets["firebase_key"])
         cred = credentials.Certificate(key_dict)
         firebase_admin.initialize_app(cred, {
@@ -22,10 +23,27 @@ if not firebase_admin._apps:
 
 # Firebase 데이터베이스 참조
 try:
-    ref = db.reference('급식예약')
+    root_ref = db.reference('/')
+    ref = root_ref.child('급식예약')
 except Exception as e:
     st.error(f"데이터베이스 연결 실패: {e}")
     st.stop()
+
+# ✨ [추가 기능 3] 밤 12시(자정) 자동 일괄 취소 시스템
+try:
+    # 한국 시간(KST) 기준으로 오늘 날짜 구하기 (서버 시차 문제 완벽 해결)
+    kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
+    today_str = kst_now.strftime("%Y-%m-%d")
+    
+    # 데이터베이스에 기록된 마지막 리셋 날짜 확인
+    last_reset = root_ref.child('설정/마지막리셋날짜').get()
+    
+    # 날짜가 바뀌었다면 자정이 지난 것이므로 예약 데이터 통째로 삭제
+    if last_reset != today_str:
+        ref.delete()  # 기존 예약 전체 삭제
+        root_ref.child('설정/마지막리셋날짜').set(today_str)  # 리셋 날짜를 오늘로 갱신
+except Exception as e:
+    pass # 리셋 과정에서 오류가 나더라도 로그인/예약 기능은 정상 작동하도록 예외 처리
 
 # 3. 상수 정의 및 핵심 함수
 MAX_PERSON = 100
@@ -37,8 +55,7 @@ def get_grade(student_id):
     return int(student_id[0])
 
 def can_reserve(grade):
-    # ⚠️ 리얼타임 시간 제한 비활성화 (언제든 예약 가능하도록 무조건 True 반환)
-    return True
+    return True # 상시 예약 가능 상태 유지
 
 def congestion(count):
     if count <= 30: return "🟢 여유"
@@ -53,10 +70,11 @@ def mask_name(name):
         mid = length // 2
         return name[:mid] + "*" + name[mid+1:]
 
-# 4. 세션 상태 관리 (화면 전환용)
+# 4. 세션 상태 관리 (화면 전환 및 팝업 메시지 제어)
 if 'page' not in st.session_state: st.session_state.page = 'login'
 if 'student_entry' not in st.session_state: st.session_state.student_entry = ""
 if 'name_entry' not in st.session_state: st.session_state.name_entry = ""
+if 'toast_msg' not in st.session_state: st.session_state.toast_msg = None
 
 # 5. UI 및 기능 구현
 # --- [첫 번째 화면: 로그인] ---
@@ -81,6 +99,14 @@ if st.session_state.page == 'login':
 
 # --- [두 번째 화면: 예약 및 실시간 현황판] ---
 elif st.session_state.page == 'reserve':
+    # ✨ [추가 기능 2] 5초마다 화면을 백그라운드에서 새로고침하여 타인의 예약 현황을 실시간 동기화
+    st_autorefresh(interval=5000, key="lunch_data_refresh")
+
+    # ✨ [추가 기능 1] 예약/취소 성공 시 화면에 예쁜 팝업 알림 띄우기
+    if st.session_state.toast_msg:
+        st.toast(st.session_state.toast_msg, icon="🔔")
+        st.session_state.toast_msg = None # 알림 표시 후 초기화
+
     student = st.session_state.student_entry
     name = st.session_state.name_entry
     grade = get_grade(student)
@@ -131,20 +157,22 @@ elif st.session_state.page == 'reserve':
                     st.error("선택하신 시간대는 이미 마감되었습니다.")
                 else:
                     ref.child(student).set({"이름": name, "시간": selected_time})
-                    st.success(f"🎉 {selected_time} 예약 완료!")
+                    # 예약 완료 알림 메시지를 세션에 저장 후 리런
+                    st.session_state.toast_msg = f"🎉 {selected_time} 급식 예약이 완료되었습니다!"
                     st.rerun()
                     
         with btn_col2:
             if st.button("❌ 예약 취소", use_container_width=True):
                 if student in all_data:
                     ref.child(student).delete()
-                    st.success("예약이 취소되었습니다.")
+                    # 취소 완료 알림 메시지를 세션에 저장 후 리런
+                    st.session_state.toast_msg = "🛑 급식 예약이 정상적으로 취소되었습니다."
                     st.rerun()
                 else:
                     st.error("예약된 내역이 없습니다.")
 
     st.markdown("### 📊 실시간 예약 현황판")
-    st.caption("※ 다른 사람의 예약 내역이 실시간으로 반영됩니다.")
+    st.caption("※ 5초마다 자동으로 새로고침되어 다른 사람의 예약 현황이 실시간 반영됩니다.")
 
     for t in ALL_TIMES:
         hour, minute = map(int, t.split(':'))
