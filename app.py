@@ -8,10 +8,8 @@ import re
 import requests
 from streamlit_autorefresh import st_autorefresh  
 
-# 1. 페이지 기본 설정 및 디자인
 st.set_page_config(page_title="급식 예약 시스템", page_icon="🍴", layout="centered")
 
-# 2. Firebase 최초 1회 초기화 (Secrets 금고 모드)
 if not firebase_admin._apps:
     try:
         key_dict = json.loads(st.secrets["firebase_key"])
@@ -23,7 +21,6 @@ if not firebase_admin._apps:
         st.error(f"Firebase 초기화 실패: {e}")
         st.stop()
 
-# Firebase 데이터베이스 참조
 try:
     root_ref = db.reference('/')
     ref = root_ref.child('급식예약')
@@ -31,7 +28,6 @@ except Exception as e:
     st.error(f"데이터베이스 연결 실패: {e}")
     st.stop()
 
-# 자정 자동 리셋 시스템
 try:
     kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
     today_str = kst_now.strftime("%Y-%m-%d")
@@ -43,7 +39,6 @@ try:
 except Exception as e:
     pass 
 
-# 3. 상수 정의 및 핵심 함수
 MAX_PERSON = 100
 ALL_TIMES = ["12:50", "12:55", "13:00", "13:05", "13:10", "13:15", "13:20", "13:25"]
 
@@ -51,20 +46,19 @@ ALL_TIMES = ["12:50", "12:55", "13:00", "13:05", "13:10", "13:15", "13:20", "13:
 def get_lunch_menu():
     kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
     
-    # 오후 2시(14시) 이후에는 내일 급식을 조회하고, 그 전에는 오늘 급식을 조회
     if kst_now.hour >= 14:
         target_date = kst_now + timedelta(days=1)
     else:
         target_date = kst_now
         
     target_date_str = target_date.strftime("%Y%m%d")
-    date_display = target_date.strftime("%m월 %d일") # 예: "07월 10일"
+    date_display = target_date.strftime("%m월 %d일")
     
     url = "https://open.neis.go.kr/hub/mealServiceDietInfo"
     params = {
         "Type": "json",
-        "ATPT_OFCDC_SC_CODE": "J10", # 경기도교육청
-        "SD_SCHUL_CODE": "J100000822", # 태성고등학교
+        "ATPT_OFCDC_SC_CODE": "J10", 
+        "SD_SCHUL_CODE": "J100000822", 
         "MLSV_YMD": target_date_str
     }
     
@@ -105,14 +99,11 @@ def mask_name(name):
         mid = length // 2
         return name[:mid] + "*" + name[mid+1:]
 
-# 4. 세션 상태 관리 
 if 'page' not in st.session_state: st.session_state.page = 'login'
 if 'student_entry' not in st.session_state: st.session_state.student_entry = ""
 if 'name_entry' not in st.session_state: st.session_state.name_entry = ""
 if 'toast_msg' not in st.session_state: st.session_state.toast_msg = None
 
-# 5. UI 및 기능 구현
-# --- [첫 번째 화면: 로그인] ---
 if st.session_state.page == 'login':
     st.title("🍴 태성고 급식 예약 시스템")
     st.subheader("학번과 이름을 입력하여 입장해 주세요.")
@@ -132,7 +123,6 @@ if st.session_state.page == 'login':
             st.session_state.page = 'reserve'
             st.rerun()
 
-# --- [두 번째 화면: 예약 및 실시간 현황판] ---
 elif st.session_state.page == 'reserve':
     st_autorefresh(interval=5000, key="lunch_data_refresh")
 
@@ -230,6 +220,7 @@ elif st.session_state.page == 'reserve':
         time_mins = hour * 60 + minute
         if grade == 1 and time_mins < 13 * 60 + 10: continue
         if grade == 2 and time_mins < 13 * 60: continue
+        if grade == 3 wins = hour * 60 + minute
         if grade == 3 and time_mins < 12 * 60 + 50: continue
 
         people_list = server_reservations[t]
