@@ -220,7 +220,6 @@ elif st.session_state.page == 'reserve':
         time_mins = hour * 60 + minute
         if grade == 1 and time_mins < 13 * 60 + 10: continue
         if grade == 2 and time_mins < 13 * 60: continue
-        if grade == 3 wins = hour * 60 + minute
         if grade == 3 and time_mins < 12 * 60 + 50: continue
 
         people_list = server_reservations[t]
