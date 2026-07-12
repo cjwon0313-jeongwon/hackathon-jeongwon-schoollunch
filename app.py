@@ -10,7 +10,10 @@ from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="급식 예약 시스템", page_icon="🍴", layout="centered")
 
-if not firebase_admin._apps:
+# ✨ 이미 연결된 Firebase가 있는지 확인하고, 없을 때만 초기화하여 에러 방지
+try:
+    firebase_admin.get_app()
+except ValueError:
     try:
         key_dict = json.loads(st.secrets["firebase_key"])
         cred = credentials.Certificate(key_dict)
